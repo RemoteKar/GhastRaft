@@ -1,0 +1,6 @@
+# 리소스팩 배포 설정
+# tools/build-pack.py -> tools/upload-dropbox.py --write-config 으로 자동 갱신된다.
+resourcepack:
+  url: ""
+  sha1: ""
+  force: true

@@ -1,0 +1,14 @@
+name: GhastRaft
+version: '76.0'
+main: ghastraft.GhastRaftPlugin
+api-version: '1.21'
+description: Shulker ship team battle
+commands:
+  ship:
+    description: team ship battle
+    usage: /ship team <n> | start | stop | reset | spawn | remove | debug | mode | lead
+    aliases: [raft]
+    permission: ghastraft.use
+permissions:
+  ghastraft.use:
+    default: op
