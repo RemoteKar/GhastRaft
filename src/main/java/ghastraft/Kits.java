@@ -36,6 +36,7 @@ public final class Kits {
     public static final Key KEY_REAPER = Key.key(NS, "kit_reaper");
     public static final Key KEY_BEAR = Key.key(NS, "kit_bear");
     public static final Key KEY_SCV = Key.key(NS, "kit_scv");
+    public static final Key KEY_CAPTAIN = Key.key(NS, "kit_captain");
     private static final NamespacedKey WELDER_TAG = new NamespacedKey(NS, "welder");
     /** 지급 장비 표식. 이게 붙은 것만 버릴 수 없다(전리품은 자유롭게 던질 수 있다). */
     private static final NamespacedKey KIT_ITEM = new NamespacedKey(NS, "kit_item");
@@ -81,6 +82,15 @@ public final class Kits {
     public static final double BEAR_HEALTH = 24.0;     // 12칸
     public static final double MARINE_HEALTH = 20.0;   // 10칸
     public static final double REAPER_HEALTH = 16.0;   // 8칸
+    public static final double CAPTAIN_HEALTH = 18.0;  // 9칸
+
+    /**
+     * 함장이 직접 조종석에 앉아 있는 동안 그 함선이 받는 보정.
+     * 최대 체력을 올리는 대신 피해를 깎는다 - 함장이 타고 내릴 때마다 최대치가
+     * 흔들리면 현재 체력 비율·격침 판정·스코어보드가 전부 요동치기 때문이다.
+     */
+    public static final double CAPTAIN_HULL_CUT = 0.25;   // 선체 피해 25% 감소
+    public static final double CAPTAIN_SPEED_MUL = 1.25;  // 함선 속도 x1.25
 
     private static final TrimMaterial[] TRIMS = {
             TrimMaterial.REDSTONE,    // 레드
@@ -149,7 +159,8 @@ public final class Kits {
                         DialogBody.plainMessage(Component.text("해병 — 단단하고 원거리에 강합니다.", NamedTextColor.AQUA)),
                         DialogBody.plainMessage(Component.text("사신 — 기동성과 폭발 화력.", NamedTextColor.LIGHT_PURPLE)),
                         DialogBody.plainMessage(Component.text("불곰 — 거대하고 단단하며 돌풍으로 밀어냅니다.", NamedTextColor.GOLD)),
-                        DialogBody.plainMessage(Component.text("SCV — 함선 수리와 고속 채굴 담당.", NamedTextColor.YELLOW))))
+                        DialogBody.plainMessage(Component.text("SCV — 함선 수리와 고속 채굴 담당.", NamedTextColor.YELLOW)),
+                        DialogBody.plainMessage(Component.text("함장 — 직접 조종하는 함선이 단단하고 빨라집니다.", NamedTextColor.GREEN))))
                 .canCloseWithEscape(true)
                 .build();
 
@@ -163,9 +174,14 @@ public final class Kits {
                 Component.text("플라즈마 용접기 · 네더라이트 곡괭이 · 갑옷 없음 · 체력 15칸"),
                 140, DialogAction.customClick(KEY_SCV, null));
 
+        ActionButton captain = ActionButton.create(
+                Component.text("함장", NamedTextColor.GREEN),
+                Component.text("금갑옷 · 철검 · 망원경 · 체력 9칸 · 조종 시 함선 강화"),
+                140, DialogAction.customClick(KEY_CAPTAIN, null));
+
         player.showDialog(Dialog.create(factory -> factory.empty()
                 .base(base)
-                .type(DialogType.multiAction(List.of(marine, reaper, bear, scv), null, 2))));
+                .type(DialogType.multiAction(List.of(marine, reaper, bear, scv, captain), null, 2))));
     }
 
     /* ---------------------------------------------------------------- 지급 */
@@ -187,6 +203,7 @@ public final class Kits {
                 case "scv" -> SCV_HEALTH;
                 case "bear" -> BEAR_HEALTH;
                 case "reaper" -> REAPER_HEALTH;
+                case "captain" -> CAPTAIN_HEALTH;
                 default -> MARINE_HEALTH;
             });
         }
@@ -218,6 +235,16 @@ public final class Kits {
             player.getInventory().setItem(1, new ItemStack(Material.WIND_CHARGE, WIND_MAX));
             player.sendMessage(Component.text("불곰 선택 — 돌풍구는 2초마다 1개씩 최대 2개까지 재장전됩니다.",
                     NamedTextColor.GOLD));
+        } else if ("captain".equals(kit)) {
+            // 개인 전투력은 낮다. 대신 자기가 조종석에 앉아 있는 동안 함선이 강해진다.
+            player.getInventory().setHelmet(trimmed(new ItemStack(Material.GOLDEN_HELMET), teamSlot));
+            player.getInventory().setChestplate(trimmed(new ItemStack(Material.GOLDEN_CHESTPLATE), teamSlot));
+            player.getInventory().setLeggings(trimmed(new ItemStack(Material.GOLDEN_LEGGINGS), teamSlot));
+            player.getInventory().setBoots(trimmed(new ItemStack(Material.GOLDEN_BOOTS), teamSlot));
+            player.getInventory().setItem(1, unbreakable(new ItemStack(Material.SPYGLASS)));
+            player.sendMessage(Component.text("함장 선택 — 직접 조종하는 함선은 선체 피해 "
+                    + (int) (CAPTAIN_HULL_CUT * 100) + "% 감소, 속도 x"
+                    + String.format("%.2f", CAPTAIN_SPEED_MUL) + " 가 됩니다.", NamedTextColor.GREEN));
         } else if ("reaper".equals(kit)) {
             player.getInventory().setHelmet(trimmed(new ItemStack(Material.LEATHER_HELMET), teamSlot));
             player.getInventory().setChestplate(unbreakable(new ItemStack(Material.ELYTRA)));
@@ -283,6 +310,16 @@ public final class Kits {
                 org.bukkit.persistence.PersistentDataType.STRING);
     }
 
+    /** 함장인가 - 조종 중인 함선 보정에 쓴다 */
+    public static boolean isCaptain(Player player) {
+        return "captain".equals(kitOf(player));
+    }
+
+    /** 경기가 끝나면 직업 태그도 지운다 */
+    public static void clearKit(Player player) {
+        player.getPersistentDataContainer().remove(KIT_TAG);
+    }
+
     public static boolean isWelder(ItemStack item) {
         if (item == null || item.getType() != Material.BREEZE_ROD || !item.hasItemMeta()) return false;
         return item.getItemMeta().getPersistentDataContainer().has(
@@ -310,7 +347,13 @@ public final class Kits {
         return item;
     }
 
-    /** 직업별 소모품 보충. 플러그인이 10틱마다 호출한다. */
+    /**
+     * 직업별 소모품 보충. 플러그인이 10틱마다 호출한다.
+     *
+     * 보충분에도 지급 장비 표식을 남긴다. 표식이 없으면 onDrop 이 통과시켜
+     * 돌풍구·폭죽을 Q 로 아군에게 넘길 수 있고, 표식이 다르면 기존 묶음과
+     * 겹쳐지지도 않는다.
+     */
     public static void resupply(Player player, long tick, boolean aboardOwnShip) {
         String kit = player.getPersistentDataContainer().get(KIT_TAG,
                 org.bukkit.persistence.PersistentDataType.STRING);
@@ -320,7 +363,7 @@ public final class Kits {
             case "bear" -> {
                 if (tick % WIND_RELOAD != 0) return;
                 if (count(player, Material.WIND_CHARGE) < WIND_MAX) {
-                    player.getInventory().addItem(new ItemStack(Material.WIND_CHARGE, 1));
+                    player.getInventory().addItem(mark(new ItemStack(Material.WIND_CHARGE, 1)));
                 }
             }
             case "reaper" -> {
@@ -331,14 +374,18 @@ public final class Kits {
                     return;
                 }
                 if (count(player, Material.FIREWORK_ROCKET) < FIREWORK_MAX) {
-                    player.getInventory().addItem(new ItemStack(Material.FIREWORK_ROCKET, 1));
+                    player.getInventory().addItem(mark(new ItemStack(Material.FIREWORK_ROCKET, 1)));
                 }
             }
-            default -> {
+            case "marine" -> {
                 if (tick % FIREWORK_RELOAD != 0) return;
                 int have = count(player, Material.ARROW);
-                if (have < ARROW_KEEP) player.getInventory().addItem(new ItemStack(Material.ARROW, ARROW_KEEP - have));
+                if (have < ARROW_KEEP) {
+                    player.getInventory().addItem(mark(new ItemStack(Material.ARROW, ARROW_KEEP - have)));
+                }
             }
+            // SCV·함장은 활이 없다. 보충할 소모품도 없다.
+            default -> { }
         }
     }
 

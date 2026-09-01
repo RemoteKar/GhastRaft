@@ -57,7 +57,7 @@ import java.util.function.ToIntFunction;
  */
 public final class Raft {
 
-    public static final String VERSION = "v76";
+    public static final String VERSION = "v77";
 
     /** 뗏목 한 변 길이(블록) */
     public static final double FOOTPRINT = 12.0;
@@ -118,6 +118,8 @@ public final class Raft {
     public static ToIntFunction<UUID> TEAM_LOOKUP = uuid -> -1;
     /** 선박 격침 - (격침된 팀, 격침시킨 팀). 플러그인이 주입한다. */
     public static java.util.function.BiConsumer<Integer, Integer> ON_DESTROYED = (victim, killer) -> { };
+    /** 이 UUID 가 함장인가. 조종석에 앉아 있으면 함선에 보정이 붙는다. */
+    public static java.util.function.Predicate<UUID> CAPTAIN_LOOKUP = uuid -> false;
 
     /**
      * 선체 피격 처리.
@@ -145,6 +147,9 @@ public final class Raft {
             if (Kits.isWelder(bukkitAttacker.getInventory().getItemInMainHand())) repair(ship, bukkitAttacker);
             return false;
         }
+
+        // 함장이 직접 조종 중이면 선체 피해를 깎는다
+        if (ship.captainPiloting()) amount *= (float) (1.0 - Kits.CAPTAIN_HULL_CUT);
 
         boolean destroyed = ship.damage(amount);
         bukkitAttacker.sendActionBar(net.kyori.adventure.text.Component.text(
@@ -351,6 +356,17 @@ public final class Raft {
         /** 적 팀은 조종석에 탑승할 수 없다(대신 점령이 진행된다) */
         public boolean canPilot(UUID uuid) {
             return this.teamSlot < 0 || TEAM_LOOKUP.applyAsInt(uuid) == this.teamSlot;
+        }
+
+        /**
+         * 지금 조종석에 앉아 있는 사람이 함장인가.
+         * 갑판에 함장이 몇 명 있든 상관없다 - 실제로 키를 잡은 한 명만 보정을 준다.
+         */
+        public boolean captainPiloting() {
+            return !this.sinking
+                    && this.getFirstPassenger() instanceof ServerPlayer rider
+                    && canPilot(rider.getUUID())
+                    && CAPTAIN_LOOKUP.test(rider.getUUID());
         }
 
         @Override
@@ -584,7 +600,10 @@ public final class Raft {
             if (in.right())    dir = dir.subtract(left);
             if (in.jump())     dir = dir.add(0.0, 1.0, 0.0);
 
-            Vec3 target = dir.lengthSqr() > 1.0E-6 ? dir.normalize().scale(SPEED * this.speedMul) : Vec3.ZERO;
+            double speed = SPEED * this.speedMul;
+            if (CAPTAIN_LOOKUP.test(rider.getUUID())) speed *= Kits.CAPTAIN_SPEED_MUL;
+
+            Vec3 target = dir.lengthSqr() > 1.0E-6 ? dir.normalize().scale(speed) : Vec3.ZERO;
             this.velocity = this.velocity.scale(1.0 - ACCEL).add(target.scale(ACCEL));
             if (this.velocity.lengthSqr() < 1.0E-8) this.velocity = Vec3.ZERO;
         }

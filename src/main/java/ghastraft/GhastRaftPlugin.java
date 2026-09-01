@@ -49,6 +49,10 @@ public final class GhastRaftPlugin extends JavaPlugin implements Listener {
         saveDefaultConfig();
         getServer().getPluginManager().registerEvents(this, this);
         Raft.TEAM_LOOKUP = match::teamOf;
+        Raft.CAPTAIN_LOOKUP = uuid -> {
+            Player pilot = getServer().getPlayer(uuid);
+            return pilot != null && Kits.isCaptain(pilot);
+        };
         music.log = msg -> getLogger().info(msg);
         Raft.ON_DESTROYED = (victim, killer) -> {
             match.plunder(victim, killer);          // 적재 자원은 격침시킨 팀이 가져간다
@@ -479,6 +483,10 @@ public final class GhastRaftPlugin extends JavaPlugin implements Listener {
             Kits.give(player, "scv", match.teamOf(player.getUniqueId()));
             return;
         }
+        if (Kits.KEY_CAPTAIN.asString().equals(id)) {
+            Kits.give(player, "captain", match.teamOf(player.getUniqueId()));
+            return;
+        }
 
         for (Turrets.Type type : Turrets.Type.values()) {
             if (!type.key().asString().equals(id)) continue;
@@ -522,15 +530,20 @@ public final class GhastRaftPlugin extends JavaPlugin implements Listener {
 
     private void showShipUi(Player player, Raft.Pilot ship) {
         int[] res = ship.teamSlot >= 0 ? match.resourcesOf(ship.teamSlot) : new int[]{0, 0};
-        List<DialogBody> body = List.of(
+        List<DialogBody> body = new ArrayList<>(List.of(
                 DialogBody.plainMessage(Component.text("선체  " + (int) Math.ceil(ship.health)
                         + " / " + (int) ship.maxHealth, NamedTextColor.RED)),
                 DialogBody.plainMessage(Component.text("크기  " + ship.gridSize + "x" + ship.gridSize
                         + "  ·  속도  x" + String.format("%.1f", ship.speedMul), NamedTextColor.WHITE)),
                 DialogBody.plainMessage(Component.text("자원  철 " + res[0] + " · 금 " + res[1],
-                        NamedTextColor.AQUA)),
-                DialogBody.plainMessage(Component.empty()),
-                DialogBody.plainMessage(Component.text("업그레이드", NamedTextColor.GOLD)));
+                        NamedTextColor.AQUA))));
+        if (ship.captainPiloting()) {
+            body.add(DialogBody.plainMessage(Component.text("함장 지휘  피해 -"
+                    + (int) (Kits.CAPTAIN_HULL_CUT * 100) + "%  ·  속도 x"
+                    + String.format("%.2f", Kits.CAPTAIN_SPEED_MUL), NamedTextColor.GREEN)));
+        }
+        body.add(DialogBody.plainMessage(Component.empty()));
+        body.add(DialogBody.plainMessage(Component.text("업그레이드", NamedTextColor.GOLD)));
 
         DialogBase base = DialogBase.builder(Component.text("선박")).body(body)
                 .canCloseWithEscape(true).build();

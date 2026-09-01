@@ -237,13 +237,40 @@ public final class Match {
         return null;
     }
 
+/**
+     * 참가자 정리를 다음 틱으로 미룬다.
+     *
+     * stop() 은 사망 이벤트 처리 도중에 불릴 수 있다 - 마지막 적이 죽어 승부가
+     * 갈리는 경우가 그렇다. 그 자리에서 인벤토리를 비우면 이벤트가 끝난 뒤
+     * 이어지는 서버의 사망·리스폰 처리가 그 위를 덮어쓴다. 한 틱 미루면
+     * 그 뒤에서 정리되므로 어느 경로로 끝나든 결과가 같다.
+     */
+    private void scheduleReset() {
+        org.bukkit.plugin.Plugin plugin =
+                org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(Match.class);
+        if (!plugin.isEnabled()) {     // 서버 종료 중에는 스케줄러를 쓸 수 없다
+            resetPlayers();
+            return;
+        }
+        Bukkit.getScheduler().runTask(plugin, this::resetPlayers);
+    }
+
     /** 참가자 상태를 경기 전으로 되돌린다 */
     private void resetPlayers() {
-        for (UUID id : new ArrayList<>(this.teamOf.keySet())) {
+        // 팀에 속한 사람만으로는 부족하다. 중간에 들어와 팀을 못 받은 사람,
+        // 관전으로 빠진 사람도 지급 장비를 들고 있을 수 있다.
+        Set<UUID> ids = new LinkedHashSet<>(this.teamOf.keySet());
+        for (Player online : Bukkit.getOnlinePlayers()) ids.add(online.getUniqueId());
+
+        for (UUID id : ids) {
             Player player = Bukkit.getPlayer(id);
             if (player == null) continue;
             player.getInventory().clear();
             player.getInventory().setArmorContents(null);
+            player.getInventory().setItemInOffHand(null);
+            player.setItemOnCursor(null);
+            player.closeInventory();
+            Kits.clearKit(player);
             for (org.bukkit.potion.PotionEffect effect : player.getActivePotionEffects()) {
                 player.removePotionEffect(effect.getType());
             }
@@ -261,23 +288,29 @@ public final class Match {
             player.setGameMode(GameMode.ADVENTURE);
             Location spawn = SpaceMap.stationSpawn();
             if (spawn != null) player.teleport(spawn);
+            Guide.give(player);           // 대기실 상태 = 안내서만 들고 있는 상태
+            player.updateInventory();
         }
     }
 
     /** 경기 종료 - 연출 없이 즉시 제거 */
     public void stop() {
-        stopShips(true);
-        for (int slot : new ArrayList<>(this.captureBars.keySet())) hideCaptureBar(slot);
-        this.captureBars.clear();
         boolean wasRunning = this.running;
         this.running = false;
-        this.alive.clear();
-        this.defeated.clear();
-        SpaceMap.clear();
-        Turrets.clearMissiles();
-        if (wasRunning) resetPlayers();
-
-        clearBoards();
+        // 정리 도중 무엇이 터지든 참가자 되돌리기는 반드시 실행한다.
+        // 선박 철거가 실패해서 인벤토리가 그대로 남는 일이 없어야 한다.
+        try {
+            stopShips(true);
+            for (int slot : new ArrayList<>(this.captureBars.keySet())) hideCaptureBar(slot);
+            this.captureBars.clear();
+            this.alive.clear();
+            this.defeated.clear();
+            SpaceMap.clear();
+            Turrets.clearMissiles();
+            clearBoards();
+        } finally {
+            if (wasRunning) scheduleReset();
+        }
     }
 
     private void stopShips(boolean instant) {
